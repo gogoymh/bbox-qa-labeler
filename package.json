@@ -10,13 +10,14 @@
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
+    "pdfjs-dist": "^6.1.200",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^5.0.0",
     "@types/react": "^19.0.1",
     "@types/react-dom": "^19.0.1",
+    "@vitejs/plugin-react": "^5.0.0",
     "typescript": "^5.7.2",
     "vite": "^6.0.0"
   }

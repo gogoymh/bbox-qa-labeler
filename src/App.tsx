@@ -170,6 +170,87 @@ function readImageFile(file: File): Promise<ImageAsset> {
   });
 }
 
+const PDF_RENDER_SCALE = 2;
+const PDF_MAX_DIMENSION = 4000;
+
+let pdfjsModulePromise: Promise<typeof import("pdfjs-dist")> | null = null;
+
+async function getPdfjs() {
+  if (!pdfjsModulePromise) {
+    pdfjsModulePromise = (async () => {
+      const pdfjs = await import("pdfjs-dist");
+      const worker = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
+      pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
+      return pdfjs;
+    })();
+  }
+
+  return pdfjsModulePromise;
+}
+
+function isPdfFile(file: File) {
+  return file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+}
+
+function estimateDataUrlBytes(dataUrl: string) {
+  const base64 = dataUrl.split(",")[1] ?? "";
+  const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+}
+
+async function readPdfFile(file: File): Promise<ImageAsset[]> {
+  const pdfjs = await getPdfjs();
+  const buffer = await file.arrayBuffer();
+  const loadingTask = pdfjs.getDocument({ data: new Uint8Array(buffer) });
+  const pdf = await loadingTask.promise;
+
+  try {
+    const baseName = getBaseFileName(file.name);
+    const padWidth = String(pdf.numPages).length;
+    const pages: ImageAsset[] = [];
+
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      const page = await pdf.getPage(pageNumber);
+      const baseViewport = page.getViewport({ scale: 1 });
+      const longestSide = Math.max(baseViewport.width, baseViewport.height) || 1;
+      const scale = Math.min(PDF_RENDER_SCALE, PDF_MAX_DIMENSION / longestSide);
+      const viewport = page.getViewport({ scale });
+
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.floor(viewport.width));
+      canvas.height = Math.max(1, Math.floor(viewport.height));
+
+      if (!canvas.getContext("2d")) {
+        throw new Error(`${file.name} PDF 페이지를 렌더링하지 못했습니다.`);
+      }
+
+      await page.render({ canvas, viewport }).promise;
+      page.cleanup();
+
+      const dataUrl = canvas.toDataURL("image/png");
+      const suffix = String(pageNumber).padStart(padWidth, "0");
+
+      pages.push({
+        id: createId("image"),
+        name: `${baseName}-p${suffix}.png`,
+        type: "image/png",
+        size: estimateDataUrlBytes(dataUrl),
+        width: canvas.width,
+        height: canvas.height,
+        dataUrl,
+      });
+    }
+
+    if (pages.length === 0) {
+      throw new Error(`${file.name} PDF에서 페이지를 찾지 못했습니다.`);
+    }
+
+    return pages;
+  } finally {
+    await loadingTask.destroy();
+  }
+}
+
 function buildExportBox(box: NormalizedBBox, image: ImageAsset, index: number): ExportBBox {
   return {
     ...box,
@@ -256,14 +337,22 @@ function App() {
   }
 
   async function handleFileInput(event: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files ?? []).filter((file) => file.type.startsWith("image/"));
+    const files = Array.from(event.target.files ?? []).filter(
+      (file) => file.type.startsWith("image/") || isPdfFile(file),
+    );
     if (files.length === 0) return;
 
     setIsLoadingImages(true);
     setError(null);
 
     try {
-      const loadedImages = await Promise.all(files.map(readImageFile));
+      const loadedGroups = await Promise.all(
+        files.map((file) =>
+          isPdfFile(file) ? readPdfFile(file) : readImageFile(file).then((image) => [image]),
+        ),
+      );
+      const loadedImages = loadedGroups.flat();
+      if (loadedImages.length === 0) return;
 
       setImages((previous) => [...previous, ...loadedImages]);
       setDrafts((previous) => {
@@ -439,13 +528,13 @@ function App() {
             ref={fileInputRef}
             className="srOnly"
             type="file"
-            accept="image/*"
+            accept="image/*,application/pdf,.pdf"
             multiple
             onChange={handleFileInput}
           />
           <button className="button secondary" type="button" onClick={() => fileInputRef.current?.click()}>
             <Upload size={18} aria-hidden="true" />
-            이미지 업로드
+            이미지/PDF 업로드
           </button>
           <button className="button primary" type="button" onClick={downloadDataset} disabled={!canDownload}>
             <Download size={18} aria-hidden="true" />
@@ -463,7 +552,7 @@ function App() {
             <button
               className="iconButton"
               type="button"
-              title="이미지 추가"
+              title="이미지/PDF 추가"
               onClick={() => fileInputRef.current?.click()}
             >
               <ImagePlus size={18} aria-hidden="true" />
@@ -479,7 +568,7 @@ function App() {
                 disabled={isLoadingImages}
               >
                 <ImagePlus size={24} aria-hidden="true" />
-                {isLoadingImages ? "불러오는 중" : "이미지 업로드"}
+                {isLoadingImages ? "불러오는 중" : "이미지/PDF 업로드"}
               </button>
             ) : (
               images.map((image) => {
@@ -614,7 +703,7 @@ function App() {
                 disabled={isLoadingImages}
               >
                 <ImagePlus size={34} aria-hidden="true" />
-                이미지 업로드
+                이미지/PDF 업로드
               </button>
             )}
           </div>
