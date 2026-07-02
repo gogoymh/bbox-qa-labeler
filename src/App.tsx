@@ -4,6 +4,7 @@ import {
   ImagePlus,
   ListPlus,
   RotateCcw,
+  Save,
   Trash2,
   Undo2,
   Upload,
@@ -45,6 +46,7 @@ type DraftState = {
   bboxs: NormalizedBBox[];
   question: string;
   answer: string;
+  editingRecordId: string | null;
 };
 
 type DatasetRecord = {
@@ -64,6 +66,7 @@ const EMPTY_DRAFT: DraftState = {
   bboxs: [],
   question: "",
   answer: "",
+  editingRecordId: null,
 };
 
 const MIN_BOX_SIZE = 0.006;
@@ -266,6 +269,12 @@ function buildExportRecord(record: DatasetRecord): ExportRecord {
   };
 }
 
+function upsertRecords(list: DatasetRecord[], record: DatasetRecord): DatasetRecord[] {
+  return list.some((item) => item.id === record.id)
+    ? list.map((item) => (item.id === record.id ? record : item))
+    : [record, ...list];
+}
+
 function App() {
   const [images, setImages] = useState<ImageAsset[]>([]);
   const [activeImageId, setActiveImageId] = useState<string | null>(null);
@@ -286,6 +295,12 @@ function App() {
     () => records.filter((record) => record.image.id === activeImageId),
     [activeImageId, records],
   );
+
+  const editingRecord =
+    currentDraft.editingRecordId != null
+      ? records.find((record) => record.id === currentDraft.editingRecordId) ?? null
+      : null;
+  const isEditing = editingRecord !== null;
 
   const canCommitCurrent =
     Boolean(activeImage) &&
@@ -440,20 +455,20 @@ function App() {
     if (!activeImage || !canCommitCurrent) return null;
 
     return {
-      id: createId("record"),
+      id: editingRecord ? editingRecord.id : createId("record"),
       image: activeImage,
       bboxs: currentDraft.bboxs.map((box, index) => buildExportBox(box, activeImage, index)),
       question: currentDraft.question.trim(),
       answer: currentDraft.answer.trim(),
-      createdAt: new Date().toISOString(),
+      createdAt: editingRecord ? editingRecord.createdAt : new Date().toISOString(),
     };
   }
 
-  function addCurrentRecord() {
+  function commitCurrentDraft() {
     const record = buildCurrentRecord();
     if (!record) return;
 
-    setRecords((previous) => [record, ...previous]);
+    setRecords((previous) => upsertRecords(previous, record));
     resetCurrentDraft();
   }
 
@@ -473,6 +488,7 @@ function App() {
         bboxs: record.bboxs.map(({ id, x, y, width, height }) => ({ id, x, y, width, height })),
         question: record.question,
         answer: record.answer,
+        editingRecordId: record.id,
       },
     }));
     setDraftBox(null);
@@ -481,7 +497,7 @@ function App() {
 
   function downloadDataset() {
     const pendingRecord = buildCurrentRecord();
-    const exportRecords = pendingRecord ? [pendingRecord, ...records] : records;
+    const exportRecords = pendingRecord ? upsertRecords(records, pendingRecord) : records;
     const jsonRecords = exportRecords.map(buildExportRecord);
 
     if (exportRecords.length === 0) return;
@@ -712,7 +728,9 @@ function App() {
         <aside className="detailsPanel" aria-label="QA 입력">
           <div className="panelHeader">
             <h2>묶음 편집</h2>
-            <span className={canCommitCurrent ? "readyPill" : "countPill"}>{canCommitCurrent ? "준비됨" : "작성 중"}</span>
+            <span className={isEditing ? "editPill" : canCommitCurrent ? "readyPill" : "countPill"}>
+              {isEditing ? "수정 중" : canCommitCurrent ? "준비됨" : "작성 중"}
+            </span>
           </div>
 
           <label className="field">
@@ -746,9 +764,9 @@ function App() {
           </label>
 
           <div className="formActions">
-            <button className="button primary full" type="button" onClick={addCurrentRecord} disabled={!canCommitCurrent}>
-              <ListPlus size={18} aria-hidden="true" />
-              묶음 추가
+            <button className="button primary full" type="button" onClick={commitCurrentDraft} disabled={!canCommitCurrent}>
+              {isEditing ? <Save size={18} aria-hidden="true" /> : <ListPlus size={18} aria-hidden="true" />}
+              {isEditing ? "묶음 수정" : "묶음 추가"}
             </button>
           </div>
 

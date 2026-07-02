@@ -215,7 +215,8 @@ button {
 }
 
 .countPill,
-.readyPill {
+.readyPill,
+.editPill {
   display: inline-flex;
   align-items: center;
   min-height: 24px;
@@ -233,6 +234,11 @@ button {
 .readyPill {
   color: #05603a;
   background: #dff8ec;
+}
+
+.editPill {
+  color: #93370d;
+  background: #fef0c7;
 }
 
 .imageList,
