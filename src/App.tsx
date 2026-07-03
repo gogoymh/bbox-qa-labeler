@@ -1,6 +1,8 @@
-import { ChangeEvent, PointerEvent, useMemo, useRef, useState } from "react";
+import { ChangeEvent, PointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { openDB } from "idb";
 import {
   Download,
+  FileText,
   ImagePlus,
   ListPlus,
   RotateCcw,
@@ -8,6 +10,8 @@ import {
   Trash2,
   Undo2,
   Upload,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 
 type ImageAsset = {
@@ -42,19 +46,27 @@ type ExportBBox = NormalizedBBox & {
   pixel: PixelBBox;
 };
 
+type RecordType = "description" | "qa";
+
 type DraftState = {
+  type: RecordType;
   bboxs: NormalizedBBox[];
   question: string;
   answer: string;
+  description: string;
+  wordFileName: string | null;
   editingRecordId: string | null;
 };
 
 type DatasetRecord = {
   id: string;
   image: ImageAsset;
+  type: RecordType;
   bboxs: ExportBBox[];
   question: string;
   answer: string;
+  description: string;
+  wordFileName: string | null;
   createdAt: string;
 };
 
@@ -63,13 +75,75 @@ type ExportRecord = Omit<DatasetRecord, "image"> & {
 };
 
 const EMPTY_DRAFT: DraftState = {
+  type: "description",
   bboxs: [],
   question: "",
   answer: "",
+  description: "",
+  wordFileName: null,
   editingRecordId: null,
 };
 
 const MIN_BOX_SIZE = 0.006;
+
+const DB_NAME = "cad-qa-label";
+const DB_VERSION = 1;
+const STATE_STORE = "state";
+const STATE_KEY = "app-state";
+
+type PersistedState = {
+  images: ImageAsset[];
+  records: DatasetRecord[];
+  drafts: Record<string, DraftState>;
+  activeImageId: string | null;
+};
+
+let dbPromise: ReturnType<typeof openDB> | null = null;
+
+function getDb() {
+  if (!dbPromise) {
+    dbPromise = openDB(DB_NAME, DB_VERSION, {
+      upgrade(db) {
+        if (!db.objectStoreNames.contains(STATE_STORE)) {
+          db.createObjectStore(STATE_STORE);
+        }
+      },
+    });
+  }
+
+  return dbPromise;
+}
+
+async function loadPersistedState(): Promise<PersistedState | null> {
+  if (typeof indexedDB === "undefined") return null;
+
+  try {
+    const db = await getDb();
+    const parsed = (await db.get(STATE_STORE, STATE_KEY)) as Partial<PersistedState> | undefined;
+    if (!parsed) return null;
+
+    return {
+      images: Array.isArray(parsed.images) ? parsed.images : [],
+      records: Array.isArray(parsed.records) ? parsed.records : [],
+      drafts: parsed.drafts && typeof parsed.drafts === "object" ? parsed.drafts : {},
+      activeImageId: typeof parsed.activeImageId === "string" ? parsed.activeImageId : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function persistState(state: PersistedState): Promise<boolean> {
+  if (typeof indexedDB === "undefined") return false;
+
+  try {
+    const db = await getDb();
+    await db.put(STATE_STORE, state, STATE_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function createId(prefix: string) {
   const random =
@@ -275,18 +349,79 @@ function upsertRecords(list: DatasetRecord[], record: DatasetRecord): DatasetRec
     : [record, ...list];
 }
 
+type PendingAction = { kind: "upload"; files: File[] } | { kind: "download" };
+
+const ZOOM_MIN = 0.25;
+const ZOOM_MAX = 4;
+const ZOOM_STEP = 0.25;
+
+function clampZoom(value: number) {
+  return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(value * 100) / 100));
+}
+
 function App() {
   const [images, setImages] = useState<ImageAsset[]>([]);
   const [activeImageId, setActiveImageId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, DraftState>>({});
   const [records, setRecords] = useState<DatasetRecord[]>([]);
+  const [hydrated, setHydrated] = useState(false);
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
   const [draftBox, setDraftBox] = useState<NormalizedBBox | null>(null);
   const [isLoadingImages, setIsLoadingImages] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [zoom, setZoom] = useState(1);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const wordInputRef = useRef<HTMLInputElement | null>(null);
   const annotationLayerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    loadPersistedState().then((state) => {
+      if (cancelled) return;
+
+      if (state) {
+        setImages(state.images);
+        setRecords(state.records);
+        setDrafts(state.drafts);
+        setActiveImageId(state.activeImageId);
+      }
+      setHydrated(true);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+
+    const handle = window.setTimeout(() => {
+      persistState({ images, records, drafts, activeImageId }).then((saved) => {
+        if (!saved) {
+          setError(
+            "브라우저 저장에 실패했습니다. 데이터가 새로고침 후 사라질 수 있으니 JSON으로 내려받아 두세요.",
+          );
+        }
+      });
+    }, 400);
+
+    return () => window.clearTimeout(handle);
+  }, [hydrated, images, records, drafts, activeImageId]);
+
+  useEffect(() => {
+    if (!pendingAction) return;
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setPendingAction(null);
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [pendingAction]);
 
   const activeImage = images.find((image) => image.id === activeImageId) ?? null;
   const currentDraft = activeImageId ? drafts[activeImageId] ?? EMPTY_DRAFT : EMPTY_DRAFT;
@@ -302,11 +437,14 @@ function App() {
       : null;
   const isEditing = editingRecord !== null;
 
-  const canCommitCurrent =
-    Boolean(activeImage) &&
-    currentDraft.bboxs.length > 0 &&
-    currentDraft.question.trim().length > 0 &&
-    currentDraft.answer.trim().length > 0;
+  const hasRequiredText =
+    currentDraft.type === "qa"
+      ? currentDraft.question.trim().length > 0 && currentDraft.answer.trim().length > 0
+      : currentDraft.description.trim().length > 0;
+
+  const hasRequiredBoxes = currentDraft.type === "qa" ? currentDraft.bboxs.length > 0 : true;
+
+  const canCommitCurrent = Boolean(activeImage) && hasRequiredBoxes && hasRequiredText;
   const canDownload = records.length > 0 || canCommitCurrent;
 
   function ensureDraft(imageId: string) {
@@ -325,6 +463,7 @@ function App() {
     ensureDraft(imageId);
     setDraftBox(null);
     setDragStart(null);
+    setZoom(1);
   }
 
   function updateCurrentDraft(updater: (draft: DraftState) => DraftState) {
@@ -351,12 +490,22 @@ function App() {
     setDragStart(null);
   }
 
-  async function handleFileInput(event: ChangeEvent<HTMLInputElement>) {
+  function handleFileInput(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []).filter(
       (file) => file.type.startsWith("image/") || isPdfFile(file),
     );
+    event.target.value = "";
     if (files.length === 0) return;
 
+    if (images.length > 0 || records.length > 0) {
+      setPendingAction({ kind: "upload", files });
+      return;
+    }
+
+    void loadImages(files);
+  }
+
+  async function loadImages(files: File[]) {
     setIsLoadingImages(true);
     setError(null);
 
@@ -369,21 +518,63 @@ function App() {
       const loadedImages = loadedGroups.flat();
       if (loadedImages.length === 0) return;
 
-      setImages((previous) => [...previous, ...loadedImages]);
-      setDrafts((previous) => {
-        const next = { ...previous };
-        loadedImages.forEach((image) => {
-          next[image.id] = { ...EMPTY_DRAFT, bboxs: [] };
-        });
-        return next;
+      const nextDrafts: Record<string, DraftState> = {};
+      loadedImages.forEach((image) => {
+        nextDrafts[image.id] = { ...EMPTY_DRAFT, bboxs: [] };
       });
-      setActiveImageId((previous) => previous ?? loadedImages[0].id);
+
+      // 새 파일을 불러오면 기존 작업 데이터를 모두 비우고 새로 시작한다.
+      setImages(loadedImages);
+      setRecords([]);
+      setDrafts(nextDrafts);
+      setActiveImageId(loadedImages[0].id);
+      setDraftBox(null);
+      setDragStart(null);
+      setZoom(1);
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "이미지를 불러오지 못했습니다.");
     } finally {
       setIsLoadingImages(false);
-      event.target.value = "";
     }
+  }
+
+  function resetAll() {
+    setImages([]);
+    setRecords([]);
+    setDrafts({});
+    setActiveImageId(null);
+    setDraftBox(null);
+    setDragStart(null);
+    setZoom(1);
+  }
+
+  function confirmPendingAction() {
+    const action = pendingAction;
+    setPendingAction(null);
+    if (!action) return;
+
+    if (action.kind === "upload") {
+      void loadImages(action.files);
+    } else {
+      downloadDataset();
+      resetAll();
+    }
+  }
+
+  function cancelPendingAction() {
+    setPendingAction(null);
+  }
+
+  function zoomIn() {
+    setZoom((current) => clampZoom(current + ZOOM_STEP));
+  }
+
+  function zoomOut() {
+    setZoom((current) => clampZoom(current - ZOOM_STEP));
+  }
+
+  function resetZoom() {
+    setZoom(1);
   }
 
   function getLayerPoint(event: PointerEvent<HTMLDivElement>) {
@@ -437,6 +628,26 @@ function App() {
     setDraftBox(null);
   }
 
+  function setDraftType(type: RecordType) {
+    updateCurrentDraft((draft) =>
+      type === "description"
+        ? { ...draft, type, question: "", answer: "" }
+        : { ...draft, type, description: "" },
+    );
+  }
+
+  function handleWordFileInput(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (file) {
+      updateCurrentDraft((draft) => ({ ...draft, wordFileName: file.name }));
+    }
+    event.target.value = "";
+  }
+
+  function clearWordFile() {
+    updateCurrentDraft((draft) => ({ ...draft, wordFileName: null }));
+  }
+
   function removeBBox(boxId: string) {
     updateCurrentDraft((draft) => ({
       ...draft,
@@ -457,9 +668,12 @@ function App() {
     return {
       id: editingRecord ? editingRecord.id : createId("record"),
       image: activeImage,
+      type: currentDraft.type,
       bboxs: currentDraft.bboxs.map((box, index) => buildExportBox(box, activeImage, index)),
-      question: currentDraft.question.trim(),
-      answer: currentDraft.answer.trim(),
+      question: currentDraft.type === "qa" ? currentDraft.question.trim() : "",
+      answer: currentDraft.type === "qa" ? currentDraft.answer.trim() : "",
+      description: currentDraft.type === "description" ? currentDraft.description.trim() : "",
+      wordFileName: currentDraft.wordFileName,
       createdAt: editingRecord ? editingRecord.createdAt : new Date().toISOString(),
     };
   }
@@ -485,9 +699,12 @@ function App() {
     setDrafts((previous) => ({
       ...previous,
       [record.image.id]: {
+        type: record.type ?? "qa",
         bboxs: record.bboxs.map(({ id, x, y, width, height }) => ({ id, x, y, width, height })),
         question: record.question,
         answer: record.answer,
+        description: record.description ?? "",
+        wordFileName: record.wordFileName ?? null,
         editingRecordId: record.id,
       },
     }));
@@ -552,7 +769,12 @@ function App() {
             <Upload size={18} aria-hidden="true" />
             이미지/PDF 업로드
           </button>
-          <button className="button primary" type="button" onClick={downloadDataset} disabled={!canDownload}>
+          <button
+            className="button primary"
+            type="button"
+            onClick={() => setPendingAction({ kind: "download" })}
+            disabled={!canDownload}
+          >
             <Download size={18} aria-hidden="true" />
             JSON 다운로드
           </button>
@@ -621,14 +843,18 @@ function App() {
               {records.length === 0 ? (
                 <div className="mutedLine">저장된 묶음 없음</div>
               ) : (
-                records.map((record, index) => (
+                records.map((record, index) => {
+                  const preview = record.type === "qa" ? record.question : record.description;
+                  const typeLabel = record.type === "qa" ? "Q&A" : "Desc";
+
+                  return (
                   <div className="recordItem" key={record.id}>
                     <button className="recordMain" type="button" onClick={() => loadRecordAsDraft(record)}>
                       <strong>#{records.length - index}</strong>
                       <span>{record.image.name}</span>
                       <small>
-                        bbox {record.bboxs.length}개 · Q {record.question.slice(0, 22)}
-                        {record.question.length > 22 ? "..." : ""}
+                        bbox {record.bboxs.length}개 · {typeLabel} {preview.slice(0, 20)}
+                        {preview.length > 20 ? "..." : ""}
                       </small>
                     </button>
                     <button
@@ -640,7 +866,8 @@ function App() {
                       <Trash2 size={16} aria-hidden="true" />
                     </button>
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
@@ -655,6 +882,35 @@ function App() {
               </span>
             </div>
             <div className="toolButtons">
+              <div className="zoomControls">
+                <button
+                  className="iconButton"
+                  type="button"
+                  title="축소"
+                  onClick={zoomOut}
+                  disabled={!activeImage || zoom <= ZOOM_MIN}
+                >
+                  <ZoomOut size={18} aria-hidden="true" />
+                </button>
+                <button
+                  className="zoomLabel"
+                  type="button"
+                  title="100%로 맞춤"
+                  onClick={resetZoom}
+                  disabled={!activeImage}
+                >
+                  {Math.round(zoom * 100)}%
+                </button>
+                <button
+                  className="iconButton"
+                  type="button"
+                  title="확대"
+                  onClick={zoomIn}
+                  disabled={!activeImage || zoom >= ZOOM_MAX}
+                >
+                  <ZoomIn size={18} aria-hidden="true" />
+                </button>
+              </div>
               <button
                 className="iconButton"
                 type="button"
@@ -669,7 +925,14 @@ function App() {
                 type="button"
                 title="현재 입력 초기화"
                 onClick={resetCurrentDraft}
-                disabled={!activeImage || (currentDraft.bboxs.length === 0 && !currentDraft.question && !currentDraft.answer)}
+                disabled={
+                  !activeImage ||
+                  (currentDraft.bboxs.length === 0 &&
+                    !currentDraft.question &&
+                    !currentDraft.answer &&
+                    !currentDraft.description &&
+                    !currentDraft.wordFileName)
+                }
               >
                 <RotateCcw size={18} aria-hidden="true" />
               </button>
@@ -678,7 +941,7 @@ function App() {
 
           <div className="stageViewport">
             {activeImage ? (
-              <div className="imageShell">
+              <div className="imageShell" style={{ width: `${zoom * 100}%` }}>
                 <img className="targetImage" src={activeImage.dataUrl} alt={activeImage.name} draggable={false} />
                 <div
                   ref={annotationLayerRef}
@@ -733,35 +996,109 @@ function App() {
             </span>
           </div>
 
-          <label className="field">
-            <span>Question</span>
-            <textarea
-              value={currentDraft.question}
-              placeholder="질문 입력"
-              onChange={(event) =>
-                updateCurrentDraft((draft) => ({
-                  ...draft,
-                  question: event.target.value,
-                }))
-              }
+          <div className="typeTabs" role="tablist" aria-label="입력 타입">
+            <button
+              className={`typeTab ${currentDraft.type === "description" ? "active" : ""}`}
+              type="button"
+              role="tab"
+              aria-selected={currentDraft.type === "description"}
+              onClick={() => setDraftType("description")}
               disabled={!activeImage}
-            />
-          </label>
+            >
+              Description
+            </button>
+            <button
+              className={`typeTab ${currentDraft.type === "qa" ? "active" : ""}`}
+              type="button"
+              role="tab"
+              aria-selected={currentDraft.type === "qa"}
+              onClick={() => setDraftType("qa")}
+              disabled={!activeImage}
+            >
+              Q&amp;A
+            </button>
+          </div>
 
-          <label className="field">
-            <span>Answer</span>
-            <textarea
-              value={currentDraft.answer}
-              placeholder="답변 입력"
-              onChange={(event) =>
-                updateCurrentDraft((draft) => ({
-                  ...draft,
-                  answer: event.target.value,
-                }))
-              }
-              disabled={!activeImage}
+          {currentDraft.type === "qa" ? (
+            <>
+              <label className="field">
+                <span>Question</span>
+                <textarea
+                  value={currentDraft.question}
+                  placeholder="질문 입력"
+                  onChange={(event) =>
+                    updateCurrentDraft((draft) => ({
+                      ...draft,
+                      question: event.target.value,
+                    }))
+                  }
+                  disabled={!activeImage}
+                />
+              </label>
+
+              <label className="field">
+                <span>Answer</span>
+                <textarea
+                  value={currentDraft.answer}
+                  placeholder="답변 입력"
+                  onChange={(event) =>
+                    updateCurrentDraft((draft) => ({
+                      ...draft,
+                      answer: event.target.value,
+                    }))
+                  }
+                  disabled={!activeImage}
+                />
+              </label>
+            </>
+          ) : (
+            <label className="field">
+              <span>Description</span>
+              <textarea
+                value={currentDraft.description}
+                placeholder="설명 입력"
+                onChange={(event) =>
+                  updateCurrentDraft((draft) => ({
+                    ...draft,
+                    description: event.target.value,
+                  }))
+                }
+                disabled={!activeImage}
+              />
+            </label>
+          )}
+
+          <div className="field">
+            <span>Word</span>
+            <input
+              ref={wordInputRef}
+              className="srOnly"
+              type="file"
+              accept=".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              onChange={handleWordFileInput}
             />
-          </label>
+            {currentDraft.wordFileName ? (
+              <div className="wordFile">
+                <FileText size={16} aria-hidden="true" />
+                <span className="wordFileName" title={currentDraft.wordFileName}>
+                  {currentDraft.wordFileName}
+                </span>
+                <button className="iconButton danger" type="button" title="워드 제거" onClick={clearWordFile}>
+                  <Trash2 size={16} aria-hidden="true" />
+                </button>
+              </div>
+            ) : (
+              <button
+                className="button secondary full"
+                type="button"
+                onClick={() => wordInputRef.current?.click()}
+                disabled={!activeImage}
+              >
+                <Upload size={18} aria-hidden="true" />
+                워드 업로드
+              </button>
+            )}
+          </div>
 
           <div className="formActions">
             <button className="button primary full" type="button" onClick={commitCurrentDraft} disabled={!canCommitCurrent}>
@@ -802,6 +1139,33 @@ function App() {
           </div>
         </aside>
       </main>
+
+      {pendingAction ? (
+        <div
+          className="modalOverlay"
+          role="presentation"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) cancelPendingAction();
+          }}
+        >
+          <div className="modalCard" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle">
+            <h2 id="confirmTitle">{pendingAction.kind === "upload" ? "새 파일 불러오기" : "JSON 다운로드"}</h2>
+            <p>
+              {pendingAction.kind === "upload"
+                ? "새 이미지/PDF를 불러오면 현재 이미지·저장 묶음·입력 내용이 모두 삭제됩니다. 계속할까요?"
+                : "JSON을 내려받으면 현재 데이터가 모두 삭제되고 초기화됩니다. 계속할까요?"}
+            </p>
+            <div className="modalActions">
+              <button className="button secondary" type="button" onClick={cancelPendingAction}>
+                취소
+              </button>
+              <button className="button primary" type="button" onClick={confirmPendingAction}>
+                {pendingAction.kind === "upload" ? "불러오기" : "다운로드"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

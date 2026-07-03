@@ -395,8 +395,8 @@ button {
   min-height: 0;
   overflow: auto;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: safe center;
+  justify-content: safe center;
   padding: 18px;
   background-color: #cfd6df;
   background-image:
@@ -414,17 +414,14 @@ button {
 
 .imageShell {
   position: relative;
-  display: inline-block;
-  max-width: 100%;
+  flex: none;
   line-height: 0;
   box-shadow: 0 18px 48px rgba(23, 31, 45, 0.24);
 }
 
 .targetImage {
   display: block;
-  max-width: 100%;
-  max-height: calc(100vh - 154px);
-  width: auto;
+  width: 100%;
   height: auto;
   user-select: none;
 }
@@ -512,6 +509,63 @@ button {
   background: #f2f4f7;
 }
 
+.typeTabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #dfe3eb;
+  border-radius: 10px;
+  background: #f2f4f7;
+}
+
+.typeTab {
+  min-height: 34px;
+  border-radius: 7px;
+  background: transparent;
+  color: #475467;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.typeTab.active {
+  background: #ffffff;
+  color: #18202f;
+  box-shadow: 0 1px 2px rgba(23, 31, 45, 0.12);
+}
+
+.typeTab:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.wordFile {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px 7px 11px;
+  border: 1px solid #cfd6df;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #344054;
+}
+
+.wordFile .wordFileName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: #101828;
+}
+
 .bboxListHeader {
   margin-top: 4px;
 }
@@ -536,6 +590,71 @@ button {
   font-size: 13px;
 }
 
+.zoomControls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 4px;
+  padding-right: 10px;
+  border-right: 1px solid #dfe3eb;
+}
+
+.zoomLabel {
+  min-width: 54px;
+  min-height: 36px;
+  padding: 0 8px;
+  border-radius: 8px;
+  color: #344054;
+  background: #eef2f7;
+  border: 1px solid #dde3ec;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.zoomLabel:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(16, 24, 40, 0.5);
+}
+
+.modalCard {
+  width: min(420px, 100%);
+  padding: 22px;
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(16, 24, 40, 0.3);
+}
+
+.modalCard h2 {
+  margin: 0 0 8px;
+  font-size: 17px;
+}
+
+.modalCard p {
+  margin: 0 0 18px;
+  color: #475467;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 @media (max-width: 1120px) {
   .workspace {
     grid-template-columns: 260px minmax(0, 1fr);
@@ -551,6 +670,7 @@ button {
   }
 
   .detailsPanel .panelHeader,
+  .detailsPanel .typeTabs,
   .detailsPanel .formActions,
   .detailsPanel .bboxListHeader,
   .detailsPanel .bboxList {
@@ -594,9 +714,5 @@ button {
 
   .detailsPanel {
     display: flex;
-  }
-
-  .targetImage {
-    max-height: 72vh;
   }
 }
