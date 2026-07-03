@@ -509,39 +509,27 @@ button {
   background: #f2f4f7;
 }
 
-.typeTabs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
-  padding: 4px;
-  border: 1px solid #dfe3eb;
-  border-radius: 10px;
-  background: #f2f4f7;
+.field span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.typeTab {
-  min-height: 34px;
-  border-radius: 7px;
-  background: transparent;
-  color: #475467;
-  font-weight: 700;
-  font-size: 13px;
-  cursor: pointer;
-  transition:
-    background-color 120ms ease,
-    color 120ms ease,
-    box-shadow 120ms ease;
+.requiredMark {
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: #b42318;
+  background: #fff1ef;
+  border: 1px solid #ffd4cc;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
 }
 
-.typeTab.active {
-  background: #ffffff;
-  color: #18202f;
-  box-shadow: 0 1px 2px rgba(23, 31, 45, 0.12);
-}
-
-.typeTab:disabled {
-  cursor: not-allowed;
-  opacity: 0.48;
+.fieldHint {
+  color: #b42318;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .wordFile {
@@ -670,7 +658,6 @@ button {
   }
 
   .detailsPanel .panelHeader,
-  .detailsPanel .typeTabs,
   .detailsPanel .formActions,
   .detailsPanel .bboxListHeader,
   .detailsPanel .bboxList {

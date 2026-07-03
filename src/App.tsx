@@ -46,10 +46,7 @@ type ExportBBox = NormalizedBBox & {
   pixel: PixelBBox;
 };
 
-type RecordType = "description" | "qa";
-
 type DraftState = {
-  type: RecordType;
   bboxs: NormalizedBBox[];
   question: string;
   answer: string;
@@ -61,7 +58,6 @@ type DraftState = {
 type DatasetRecord = {
   id: string;
   image: ImageAsset;
-  type: RecordType;
   bboxs: ExportBBox[];
   question: string;
   answer: string;
@@ -75,7 +71,6 @@ type ExportRecord = Omit<DatasetRecord, "image"> & {
 };
 
 const EMPTY_DRAFT: DraftState = {
-  type: "description",
   bboxs: [],
   question: "",
   answer: "",
@@ -437,14 +432,19 @@ function App() {
       : null;
   const isEditing = editingRecord !== null;
 
-  const hasRequiredText =
-    currentDraft.type === "qa"
-      ? currentDraft.question.trim().length > 0 && currentDraft.answer.trim().length > 0
-      : currentDraft.description.trim().length > 0;
+  const trimmedQuestion = currentDraft.question.trim();
+  const trimmedAnswer = currentDraft.answer.trim();
+  const trimmedDescription = currentDraft.description.trim();
 
-  const hasRequiredBoxes = currentDraft.type === "qa" ? currentDraft.bboxs.length > 0 : true;
+  const hasQuestion = trimmedQuestion.length > 0;
+  const hasAnswer = trimmedAnswer.length > 0;
+  const hasDescription = trimmedDescription.length > 0;
 
-  const canCommitCurrent = Boolean(activeImage) && hasRequiredBoxes && hasRequiredText;
+  // question 을 입력하면 answer 는 필수. bbox 는 선택 사항이다.
+  const answerRequiredMissing = hasQuestion && !hasAnswer;
+  const hasAnyContent = hasQuestion || hasAnswer || hasDescription;
+
+  const canCommitCurrent = Boolean(activeImage) && hasAnyContent && !answerRequiredMissing;
   const canDownload = records.length > 0 || canCommitCurrent;
 
   function ensureDraft(imageId: string) {
@@ -628,14 +628,6 @@ function App() {
     setDraftBox(null);
   }
 
-  function setDraftType(type: RecordType) {
-    updateCurrentDraft((draft) =>
-      type === "description"
-        ? { ...draft, type, question: "", answer: "" }
-        : { ...draft, type, description: "" },
-    );
-  }
-
   function handleWordFileInput(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (file) {
@@ -668,11 +660,10 @@ function App() {
     return {
       id: editingRecord ? editingRecord.id : createId("record"),
       image: activeImage,
-      type: currentDraft.type,
       bboxs: currentDraft.bboxs.map((box, index) => buildExportBox(box, activeImage, index)),
-      question: currentDraft.type === "qa" ? currentDraft.question.trim() : "",
-      answer: currentDraft.type === "qa" ? currentDraft.answer.trim() : "",
-      description: currentDraft.type === "description" ? currentDraft.description.trim() : "",
+      question: trimmedQuestion,
+      answer: trimmedAnswer,
+      description: trimmedDescription,
       wordFileName: currentDraft.wordFileName,
       createdAt: editingRecord ? editingRecord.createdAt : new Date().toISOString(),
     };
@@ -699,7 +690,6 @@ function App() {
     setDrafts((previous) => ({
       ...previous,
       [record.image.id]: {
-        type: record.type ?? "qa",
         bboxs: record.bboxs.map(({ id, x, y, width, height }) => ({ id, x, y, width, height })),
         question: record.question,
         answer: record.answer,
@@ -844,8 +834,7 @@ function App() {
                 <div className="mutedLine">저장된 묶음 없음</div>
               ) : (
                 records.map((record, index) => {
-                  const preview = record.type === "qa" ? record.question : record.description;
-                  const typeLabel = record.type === "qa" ? "Q&A" : "Desc";
+                  const preview = record.description || record.question || record.answer || "";
 
                   return (
                   <div className="recordItem" key={record.id}>
@@ -853,8 +842,8 @@ function App() {
                       <strong>#{records.length - index}</strong>
                       <span>{record.image.name}</span>
                       <small>
-                        bbox {record.bboxs.length}개 · {typeLabel} {preview.slice(0, 20)}
-                        {preview.length > 20 ? "..." : ""}
+                        bbox {record.bboxs.length}개
+                        {preview ? ` · ${preview.slice(0, 20)}${preview.length > 20 ? "..." : ""}` : ""}
                       </small>
                     </button>
                     <button
@@ -996,77 +985,56 @@ function App() {
             </span>
           </div>
 
-          <div className="typeTabs" role="tablist" aria-label="입력 타입">
-            <button
-              className={`typeTab ${currentDraft.type === "description" ? "active" : ""}`}
-              type="button"
-              role="tab"
-              aria-selected={currentDraft.type === "description"}
-              onClick={() => setDraftType("description")}
+          <label className="field">
+            <span>Description</span>
+            <textarea
+              value={currentDraft.description}
+              placeholder="설명 입력"
+              onChange={(event) =>
+                updateCurrentDraft((draft) => ({
+                  ...draft,
+                  description: event.target.value,
+                }))
+              }
               disabled={!activeImage}
-            >
-              Description
-            </button>
-            <button
-              className={`typeTab ${currentDraft.type === "qa" ? "active" : ""}`}
-              type="button"
-              role="tab"
-              aria-selected={currentDraft.type === "qa"}
-              onClick={() => setDraftType("qa")}
+            />
+          </label>
+
+          <label className="field">
+            <span>Question</span>
+            <textarea
+              value={currentDraft.question}
+              placeholder="질문 입력"
+              onChange={(event) =>
+                updateCurrentDraft((draft) => ({
+                  ...draft,
+                  question: event.target.value,
+                }))
+              }
               disabled={!activeImage}
-            >
-              Q&amp;A
-            </button>
-          </div>
+            />
+          </label>
 
-          {currentDraft.type === "qa" ? (
-            <>
-              <label className="field">
-                <span>Question</span>
-                <textarea
-                  value={currentDraft.question}
-                  placeholder="질문 입력"
-                  onChange={(event) =>
-                    updateCurrentDraft((draft) => ({
-                      ...draft,
-                      question: event.target.value,
-                    }))
-                  }
-                  disabled={!activeImage}
-                />
-              </label>
-
-              <label className="field">
-                <span>Answer</span>
-                <textarea
-                  value={currentDraft.answer}
-                  placeholder="답변 입력"
-                  onChange={(event) =>
-                    updateCurrentDraft((draft) => ({
-                      ...draft,
-                      answer: event.target.value,
-                    }))
-                  }
-                  disabled={!activeImage}
-                />
-              </label>
-            </>
-          ) : (
-            <label className="field">
-              <span>Description</span>
-              <textarea
-                value={currentDraft.description}
-                placeholder="설명 입력"
-                onChange={(event) =>
-                  updateCurrentDraft((draft) => ({
-                    ...draft,
-                    description: event.target.value,
-                  }))
-                }
-                disabled={!activeImage}
-              />
-            </label>
-          )}
+          <label className="field">
+            <span>
+              Answer
+              {hasQuestion ? <em className="requiredMark">필수</em> : null}
+            </span>
+            <textarea
+              value={currentDraft.answer}
+              placeholder={hasQuestion ? "답변 입력 (필수)" : "답변 입력"}
+              onChange={(event) =>
+                updateCurrentDraft((draft) => ({
+                  ...draft,
+                  answer: event.target.value,
+                }))
+              }
+              disabled={!activeImage}
+            />
+            {answerRequiredMissing ? (
+              <small className="fieldHint">질문을 입력하면 답변은 필수입니다.</small>
+            ) : null}
+          </label>
 
           <div className="field">
             <span>Word</span>
