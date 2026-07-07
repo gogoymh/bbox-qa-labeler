@@ -29,7 +29,7 @@ button {
 }
 
 .app {
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
 }
@@ -59,10 +59,9 @@ button {
 }
 
 .headerMeta,
-.stageToolbar span,
+.stageTitle span,
 .mutedLine,
 .imageItem small,
-.recordMain small,
 .bboxRow small {
   color: #667085;
 }
@@ -74,6 +73,7 @@ button {
 
 .headerActions,
 .toolButtons,
+.toolbarLeft,
 .formActions {
   display: flex;
   align-items: center;
@@ -111,6 +111,12 @@ button {
   color: #1f2937;
 }
 
+.button.danger {
+  background: #fff1ef;
+  color: #b42318;
+  border: 1px solid #ffd4cc;
+}
+
 .button.full {
   width: 100%;
 }
@@ -139,8 +145,7 @@ button {
 
 .button:not(:disabled):hover,
 .iconButton:not(:disabled):hover,
-.imageItem:hover,
-.recordMain:hover,
+.imageMain:hover,
 .emptyState:hover,
 .stageEmpty:hover {
   filter: brightness(0.98);
@@ -166,19 +171,49 @@ button {
   font-weight: 700;
 }
 
+.noticeBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 20px;
+  color: #05603a;
+  background: #dff8ec;
+  border-bottom: 1px solid #b7ecd1;
+  font-weight: 700;
+}
+
+.noticeClose {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: #05603a;
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.noticeClose:hover {
+  background: rgba(5, 96, 58, 0.12);
+}
+
 .workspace {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 286px minmax(0, 1fr) 352px;
+  grid-template-columns: 288px minmax(0, 1fr) 420px;
 }
 
 .libraryPanel,
 .detailsPanel {
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
   background: #ffffff;
+  overflow: hidden;
 }
 
 .libraryPanel {
@@ -189,6 +224,7 @@ button {
   border-left: 1px solid #dfe3eb;
   padding: 16px;
   gap: 14px;
+  overflow-y: auto;
 }
 
 .panelHeader,
@@ -202,10 +238,6 @@ button {
 
 .panelHeader {
   padding: 16px;
-}
-
-.panelHeader.compact {
-  padding: 14px 16px 8px;
 }
 
 .panelHeader h2,
@@ -252,85 +284,8 @@ button {
 }
 
 .imageList {
-  min-height: 160px;
+  min-height: 140px;
   max-height: 38vh;
-}
-
-.imageItem,
-.recordItem,
-.bboxRow,
-.emptyState {
-  border: 1px solid #dfe3eb;
-  border-radius: 8px;
-  background: #ffffff;
-}
-
-.imageItem {
-  width: 100%;
-  min-height: 72px;
-  display: grid;
-  grid-template-columns: 58px minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  padding: 8px;
-  color: inherit;
-  text-align: left;
-}
-
-.imageItem.selected {
-  border-color: #246bfe;
-  box-shadow: 0 0 0 2px rgba(36, 107, 254, 0.14);
-}
-
-.imageItem img {
-  width: 58px;
-  height: 52px;
-  object-fit: cover;
-  border-radius: 6px;
-  background: #e8edf3;
-}
-
-.imageItem span,
-.recordMain,
-.bboxRow > div {
-  min-width: 0;
-}
-
-.imageItem strong,
-.imageItem small,
-.recordMain span,
-.recordMain small,
-.bboxRow small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.imageItem strong,
-.recordMain strong,
-.bboxRow strong {
-  font-size: 13px;
-}
-
-.imageItem small,
-.recordMain small,
-.bboxRow small {
-  margin-top: 4px;
-  font-size: 12px;
-}
-
-.emptyState,
-.stageEmpty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 132px;
-  color: #475467;
-  font-weight: 800;
-  border-style: dashed;
 }
 
 .recordsBlock {
@@ -351,15 +306,129 @@ button {
   grid-template-columns: minmax(0, 1fr) 36px;
   gap: 6px;
   padding: 6px;
+  border: 1px solid #dfe3eb;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.recordItem.editing {
+  border-color: #f79009;
+  box-shadow: 0 0 0 2px rgba(247, 144, 9, 0.16);
 }
 
 .recordMain {
   min-height: 58px;
   text-align: left;
   color: inherit;
-  background: #ffffff;
+  background: transparent;
   border-radius: 6px;
   padding: 6px 8px;
+}
+
+.recordMain span,
+.recordMain small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recordMain strong {
+  font-size: 13px;
+}
+
+.recordMain span {
+  margin-top: 2px;
+  color: #344054;
+  font-size: 13px;
+}
+
+.recordMain small {
+  margin-top: 4px;
+  color: #667085;
+  font-size: 12px;
+}
+
+.panelHeader.compact {
+  padding: 14px 16px 8px;
+}
+
+.imageItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid #dfe3eb;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.imageItem.selected {
+  border-color: #246bfe;
+  box-shadow: 0 0 0 2px rgba(36, 107, 254, 0.14);
+}
+
+.imageMain {
+  width: 100%;
+  min-height: 60px;
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 2px;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border-radius: 6px;
+}
+
+.imageMain img {
+  width: 58px;
+  height: 52px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: #e8edf3;
+}
+
+.imageMain span,
+.bboxRow > div {
+  min-width: 0;
+}
+
+.imageMain strong,
+.imageMain small,
+.bboxRow small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.imageMain strong,
+.bboxRow strong {
+  font-size: 13px;
+}
+
+.imageMain small,
+.bboxRow small {
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.emptyState,
+.stageEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 132px;
+  color: #475467;
+  font-weight: 800;
+  border: 1px dashed #dfe3eb;
+  border-radius: 8px;
+  background: #ffffff;
 }
 
 .stagePanel {
@@ -377,27 +446,37 @@ button {
   background: #ffffff;
 }
 
-.stageToolbar h2 {
-  max-width: 52vw;
+.toolbarLeft {
+  min-width: 0;
+  flex: 1;
+}
+
+.stageTitle {
+  min-width: 0;
+}
+
+.stageTitle h2 {
+  max-width: 40vw;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.stageToolbar span {
+.stageTitle span {
   display: block;
   margin-top: 3px;
   font-size: 12px;
 }
 
 .stageViewport {
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow: auto;
-  display: flex;
-  align-items: safe center;
-  justify-content: safe center;
-  padding: 18px;
+  scrollbar-gutter: stable;
+  display: grid;
+  place-content: safe center;
+  padding: 0;
   background-color: #cfd6df;
   background-image:
     linear-gradient(45deg, rgba(255, 255, 255, 0.35) 25%, transparent 25%),
@@ -412,17 +491,35 @@ button {
   background-size: 24px 24px;
 }
 
-.imageShell {
+.stageViewport.panReady {
+  cursor: grab;
+}
+
+.stageViewport.panning {
+  cursor: grabbing;
+}
+
+.stageViewport.panReady *,
+.stageViewport.panning * {
+  cursor: inherit !important;
+}
+
+.stageCanvas {
   position: relative;
-  flex: none;
   line-height: 0;
   box-shadow: 0 18px 48px rgba(23, 31, 45, 0.24);
+}
+
+.imageShell {
+  position: relative;
+  width: 100%;
+  height: 100%;
 }
 
 .targetImage {
   display: block;
   width: 100%;
-  height: auto;
+  height: 100%;
   user-select: none;
 }
 
@@ -439,11 +536,23 @@ button {
   min-height: 2px;
   border: 2px solid #18a572;
   background: rgba(24, 165, 114, 0.12);
+  cursor: move;
 }
 
 .bbox.draft {
   border-color: #ffb020;
   background: rgba(255, 176, 32, 0.16);
+  cursor: crosshair;
+}
+
+.bbox.selected {
+  border-color: #246bfe;
+  background: rgba(36, 107, 254, 0.14);
+  box-shadow: 0 0 0 1px rgba(36, 107, 254, 0.5);
+}
+
+.bbox.selected span {
+  background: #246bfe;
 }
 
 .bbox span {
@@ -462,17 +571,28 @@ button {
   font-size: 12px;
   font-weight: 900;
   line-height: 1;
+  transform-origin: left bottom;
 }
 
 .bbox.draft span {
   background: #b54708;
 }
 
+.handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: #ffffff;
+  border: 2px solid #0f8b6f;
+  border-radius: 3px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.3);
+  z-index: 2;
+}
+
 .stageEmpty {
   width: min(360px, 100%);
   min-height: 220px;
-  border: 1px dashed #98a2b3;
-  border-radius: 8px;
+  border-color: #98a2b3;
   background: rgba(255, 255, 255, 0.82);
 }
 
@@ -482,7 +602,15 @@ button {
   gap: 7px;
 }
 
+.field.description {
+  flex: 1;
+  min-height: 200px;
+}
+
 .field span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: #344054;
   font-size: 13px;
   font-weight: 800;
@@ -500,6 +628,12 @@ button {
   outline: none;
 }
 
+.field.description textarea {
+  flex: 1;
+  min-height: 220px;
+  resize: none;
+}
+
 .field textarea:focus {
   border-color: #246bfe;
   box-shadow: 0 0 0 3px rgba(36, 107, 254, 0.14);
@@ -509,25 +643,8 @@ button {
   background: #f2f4f7;
 }
 
-.field span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.requiredMark {
-  padding: 1px 6px;
-  border-radius: 999px;
-  color: #b42318;
-  background: #fff1ef;
-  border: 1px solid #ffd4cc;
-  font-size: 11px;
-  font-style: normal;
-  font-weight: 800;
-}
-
-.fieldHint {
-  color: #b42318;
+.formHint {
+  color: #b54708;
   font-size: 12px;
   font-weight: 600;
 }
@@ -558,9 +675,15 @@ button {
   margin-top: 4px;
 }
 
+.bboxListHeader span {
+  color: #667085;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .bboxList {
-  min-height: 0;
-  flex: 1;
+  min-height: 120px;
+  max-height: 34vh;
   padding: 0;
 }
 
@@ -571,6 +694,15 @@ button {
   align-items: center;
   gap: 8px;
   padding: 8px;
+  border: 1px solid #dfe3eb;
+  border-radius: 8px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.bboxRow.selected {
+  border-color: #246bfe;
+  box-shadow: 0 0 0 2px rgba(36, 107, 254, 0.14);
 }
 
 .mutedLine {
@@ -643,42 +775,14 @@ button {
   gap: 10px;
 }
 
-@media (max-width: 1120px) {
-  .workspace {
-    grid-template-columns: 260px minmax(0, 1fr);
-  }
-
-  .detailsPanel {
-    grid-column: 1 / -1;
-    border-left: 0;
-    border-top: 1px solid #dfe3eb;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    align-content: start;
-  }
-
-  .detailsPanel .panelHeader,
-  .detailsPanel .formActions,
-  .detailsPanel .bboxListHeader,
-  .detailsPanel .bboxList {
-    grid-column: 1 / -1;
-  }
-}
-
-@media (max-width: 760px) {
-  .appHeader {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .headerActions {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+@media (max-width: 900px) {
+  .app {
+    height: auto;
+    min-height: 100vh;
   }
 
   .workspace {
-    display: flex;
-    flex-direction: column;
+    grid-template-columns: 1fr !important;
   }
 
   .libraryPanel,
@@ -688,18 +792,14 @@ button {
   }
 
   .imageList {
-    max-height: none;
+    max-height: 40vh;
   }
 
   .stagePanel {
     min-height: 520px;
   }
 
-  .stageToolbar h2 {
-    max-width: 62vw;
-  }
-
-  .detailsPanel {
-    display: flex;
+  .stageTitle h2 {
+    max-width: 60vw;
   }
 }
