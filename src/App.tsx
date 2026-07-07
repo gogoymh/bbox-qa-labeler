@@ -38,6 +38,7 @@ type NormalizedBBox = {
   y: number;
   width: number;
   height: number;
+  title?: string;
 };
 
 type PixelBBox = {
@@ -147,6 +148,7 @@ function normalizeDraft(value: any): DraftState {
           y: clamp(Number(box?.y) || 0),
           width: clamp(Number(box?.width) || 0),
           height: clamp(Number(box?.height) || 0),
+          title: typeof box?.title === "string" ? box.title : "",
         }))
       : [],
     description: typeof value?.description === "string" ? value.description : "",
@@ -238,17 +240,16 @@ function normalizeBox(start: { x: number; y: number }, end: { x: number; y: numb
     y: clamp(y),
     width: clamp(width),
     height: clamp(height),
+    title: "",
   };
 }
 
 // 박스 이동: 정규화 좌표계에서 delta 만큼 옮기되 이미지 밖으로 나가지 않게 한다.
 function moveBox(orig: NormalizedBBox, dx: number, dy: number): NormalizedBBox {
   return {
-    id: orig.id,
+    ...orig,
     x: clamp(orig.x + dx, 0, 1 - orig.width),
     y: clamp(orig.y + dy, 0, 1 - orig.height),
-    width: orig.width,
-    height: orig.height,
   };
 }
 
@@ -269,7 +270,7 @@ function resizeBox(orig: NormalizedBBox, handle: string, dx: number, dy: number)
   if (top) y1 = clamp(orig.y + dy, 0, y2 - MIN_BOX_SIZE);
   if (bottom) y2 = clamp(orig.y + orig.height + dy, y1 + MIN_BOX_SIZE, 1);
 
-  return { id: orig.id, x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+  return { ...orig, x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
 }
 
 function toPixelBox(box: NormalizedBBox, image: { width: number; height: number }): PixelBBox {
@@ -425,6 +426,7 @@ async function readPdfFile(file: File): Promise<ImageAsset[]> {
 function buildExportBox(box: NormalizedBBox, image: { width: number; height: number }, index: number): ExportBBox {
   return {
     ...box,
+    title: box.title ?? "",
     index,
     pixel: toPixelBox(box, image),
   };
@@ -493,6 +495,7 @@ function parseBBoxes(value: any): NormalizedBBox[] {
         y: clamp(Number(box?.y) || 0),
         width: clamp(Number(box?.width) || 0),
         height: clamp(Number(box?.height) || 0),
+        title: typeof box?.title === "string" ? box.title : "",
       }))
     : [];
 }
@@ -1138,7 +1141,7 @@ function App() {
     setDrafts((previous) => ({
       ...previous,
       [record.image.id]: {
-        bboxs: record.bboxs.map(({ id, x, y, width, height }) => ({ id, x, y, width, height })),
+        bboxs: record.bboxs.map(({ id, x, y, width, height, title }) => ({ id, x, y, width, height, title: title ?? "" })),
         description: record.description,
         wordFileName: record.wordFileName,
         editingRecordId: record.id,
@@ -1212,7 +1215,7 @@ function App() {
     } else {
       setSelectedBoxId(null);
       setInteraction({ kind: "draw", start: point });
-      setDraftBox({ id: "draft", x: point.x, y: point.y, width: 0, height: 0 });
+      setDraftBox({ id: "draft", x: point.x, y: point.y, width: 0, height: 0, title: "" });
     }
   }
 
@@ -1304,6 +1307,13 @@ function App() {
       bboxs: draft.bboxs.filter((box) => box.id !== boxId),
     }));
     setSelectedBoxId((previous) => (previous === boxId ? null : previous));
+  }
+
+  function setBBoxTitle(boxId: string, title: string) {
+    updateCurrentDraft((draft) => ({
+      ...draft,
+      bboxs: draft.bboxs.map((box) => (box.id === boxId ? { ...box, title } : box)),
+    }));
   }
 
   function undoLastBBox() {
@@ -1602,7 +1612,9 @@ function App() {
                             height: `${box.height * 100}%`,
                           }}
                         >
-                          <span data-box-id={isDraft ? undefined : box.id}>{isDraft ? "new" : index + 1}</span>
+                          <span data-box-id={isDraft ? undefined : box.id}>
+                            {isDraft ? "new" : box.title ? `${index + 1}. ${box.title}` : index + 1}
+                          </span>
                           {isSelected && !spaceDown
                             ? HANDLES.map((handle) => (
                                 <span
@@ -1720,13 +1732,24 @@ function App() {
                       key={box.id}
                       onClick={() => setSelectedBoxId(box.id)}
                     >
-                      <div>
-                        <strong>#{index + 1}</strong>
-                        <small>
-                          {pixel
-                            ? `${pixel.x}, ${pixel.y}, ${pixel.width}x${pixel.height}`
-                            : `${(box.x * 100).toFixed(1)}%, ${(box.y * 100).toFixed(1)}%`}
-                        </small>
+                      <div className="bboxRowMain">
+                        <div className="bboxRowHead">
+                          <strong>#{index + 1}</strong>
+                          <small>
+                            {pixel
+                              ? `${pixel.x}, ${pixel.y}, ${pixel.width}x${pixel.height}`
+                              : `${(box.x * 100).toFixed(1)}%, ${(box.y * 100).toFixed(1)}%`}
+                          </small>
+                        </div>
+                        <input
+                          className="bboxTitleInput"
+                          type="text"
+                          value={box.title ?? ""}
+                          placeholder="타이틀 입력"
+                          onChange={(event) => setBBoxTitle(box.id, event.target.value)}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => event.stopPropagation()}
+                        />
                       </div>
                       <button
                         className="iconButton danger"

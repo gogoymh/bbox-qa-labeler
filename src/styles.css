@@ -560,6 +560,7 @@ button {
   left: -2px;
   top: -24px;
   min-width: 22px;
+  max-width: 240px;
   height: 20px;
   display: inline-flex;
   align-items: center;
@@ -571,6 +572,9 @@ button {
   font-size: 12px;
   font-weight: 900;
   line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   transform-origin: left bottom;
 }
 
@@ -698,6 +702,41 @@ button {
   border-radius: 8px;
   background: #ffffff;
   cursor: pointer;
+}
+
+.bboxRowMain {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bboxRowHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.bboxRowHead small {
+  margin-top: 0;
+}
+
+.bboxTitleInput {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid #cfd6df;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #101828;
+  background: #ffffff;
+  outline: none;
+}
+
+.bboxTitleInput:focus {
+  border-color: #246bfe;
+  box-shadow: 0 0 0 3px rgba(36, 107, 254, 0.14);
 }
 
 .bboxRow.selected {
