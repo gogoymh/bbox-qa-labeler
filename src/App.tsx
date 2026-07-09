@@ -4,6 +4,7 @@ import {
   Download,
   FileText,
   FolderOpen,
+  Hand,
   ImagePlus,
   ListPlus,
   Maximize,
@@ -13,6 +14,7 @@ import {
   PanelRightOpen,
   RotateCcw,
   Save,
+  SquareDashedMousePointer,
   Trash2,
   Undo2,
   Upload,
@@ -39,6 +41,7 @@ type NormalizedBBox = {
   width: number;
   height: number;
   title?: string;
+  description?: string;
 };
 
 type PixelBBox = {
@@ -149,6 +152,7 @@ function normalizeDraft(value: any): DraftState {
           width: clamp(Number(box?.width) || 0),
           height: clamp(Number(box?.height) || 0),
           title: typeof box?.title === "string" ? box.title : "",
+          description: typeof box?.description === "string" ? box.description : "",
         }))
       : [],
     description: typeof value?.description === "string" ? value.description : "",
@@ -241,6 +245,7 @@ function normalizeBox(start: { x: number; y: number }, end: { x: number; y: numb
     width: clamp(width),
     height: clamp(height),
     title: "",
+    description: "",
   };
 }
 
@@ -427,6 +432,7 @@ function buildExportBox(box: NormalizedBBox, image: { width: number; height: num
   return {
     ...box,
     title: box.title ?? "",
+    description: box.description ?? "",
     index,
     pixel: toPixelBox(box, image),
   };
@@ -496,6 +502,7 @@ function parseBBoxes(value: any): NormalizedBBox[] {
         width: clamp(Number(box?.width) || 0),
         height: clamp(Number(box?.height) || 0),
         title: typeof box?.title === "string" ? box.title : "",
+        description: typeof box?.description === "string" ? box.description : "",
       }))
     : [];
 }
@@ -581,6 +588,11 @@ function parseProject(data: any): ParsedImage[] | null {
 const ZOOM_MIN = 0.1;
 const ZOOM_MAX = 8;
 
+// 오른쪽 "묶음 편집" 패널 너비 조절 관련 상수
+const DEFAULT_RIGHT_WIDTH = 420;
+const MIN_RIGHT_WIDTH = 240; // 열려 있을 때 최소 너비
+const COLLAPSE_RIGHT_THRESHOLD = 140; // 드래그로 이보다 좁아지면 패널을 접는다
+
 function clampZoom(value: number) {
   return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(value * 1000) / 1000));
 }
@@ -628,6 +640,10 @@ function App() {
 
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
+  const [rightWidth, setRightWidth] = useState(DEFAULT_RIGHT_WIDTH);
+
+  // 도구 모드: "draw"=드래그로 bbox 생성 / "pan"=드래그로 도면 이동(스크롤)
+  const [tool, setTool] = useState<"draw" | "pan">("draw");
 
   const [zoom, setZoom] = useState(1);
   const [spaceDown, setSpaceDown] = useState(false);
@@ -643,6 +659,9 @@ function App() {
   const panStartRef = useRef<{ clientX: number; clientY: number; scrollLeft: number; scrollTop: number } | null>(null);
   const zoomAnchorRef = useRef<{ fracX: number; fracY: number; cursorX: number; cursorY: number } | null>(null);
   const centeredRef = useRef<string | null>(null);
+  // 패닝 판정은 native pointer 이벤트/버블링 타이밍에서 최신 값이 필요하므로 ref 로 둔다.
+  const spaceDownRef = useRef(false);
+  const rightResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const activeImage = images.find((image) => image.id === activeImageId) ?? null;
   const currentDraft = activeImageId ? drafts[activeImageId] ?? EMPTY_DRAFT : EMPTY_DRAFT;
@@ -660,16 +679,19 @@ function App() {
 
   const hasDescription = currentDraft.description.trim().length > 0;
   const hasBBox = currentDraft.bboxs.length > 0;
-  // 묶음 추가는 설명(description)과 bbox 가 모두 있을 때만 가능
-  const canCommit = Boolean(activeImage) && hasDescription && hasBBox;
+  // bbox 하나 이상 또는 공통 설명이 있으면 묶음을 저장할 수 있다.
+  // (설명은 이제 bbox 별로 입력하므로 상단 공통 설명은 선택 사항)
+  const canCommit = Boolean(activeImage) && (hasBBox || hasDescription);
   // 저장된 묶음이 있어야만 다운로드 가능
   const canDownload = records.length > 0;
 
   // 최신 값을 native wheel 리스너에서 참조하기 위한 ref
   const zoomRef = useRef(zoom);
   const activeImageRef = useRef(activeImage);
+  const toolRef = useRef(tool);
   zoomRef.current = zoom;
   activeImageRef.current = activeImage;
+  toolRef.current = tool;
 
   // 뷰포트에 맞춰 이미지를 축소해 보여줄 기준 크기 (zoom=1 일 때 화면에 꼭 맞음)
   const baseFit = useMemo(() => {
@@ -745,28 +767,41 @@ function App() {
     }
   }, [activeImage]);
 
-  // 스페이스바: 누르는 동안 패닝 모드
+  // 스페이스바: 누르는 동안 패닝 모드. ref 를 함께 갱신해 pointer 핸들러가 항상 최신 값을 본다.
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if ((event.code === "Space" || event.key === " ") && !isTypingTarget(event.target)) {
         event.preventDefault();
+        spaceDownRef.current = true;
         setSpaceDown(true);
       }
     }
 
     function onKeyUp(event: KeyboardEvent) {
       if (event.code === "Space" || event.key === " ") {
+        spaceDownRef.current = false;
         setSpaceDown(false);
-        setPanning(false);
+        // 패닝 중이 아니라면 스크롤 위치는 유지한다.
         panStartRef.current = null;
+        setPanning(false);
       }
+    }
+
+    // 창이 포커스를 잃으면 keyup 을 놓쳐 패닝 모드가 고착될 수 있어 강제로 해제한다.
+    function onBlur() {
+      spaceDownRef.current = false;
+      setSpaceDown(false);
+      panStartRef.current = null;
+      setPanning(false);
     }
 
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
     };
   }, []);
 
@@ -1141,7 +1176,15 @@ function App() {
     setDrafts((previous) => ({
       ...previous,
       [record.image.id]: {
-        bboxs: record.bboxs.map(({ id, x, y, width, height, title }) => ({ id, x, y, width, height, title: title ?? "" })),
+        bboxs: record.bboxs.map(({ id, x, y, width, height, title, description }) => ({
+          id,
+          x,
+          y,
+          width,
+          height,
+          title: title ?? "",
+          description: description ?? "",
+        })),
         description: record.description,
         wordFileName: record.wordFileName,
         editingRecordId: record.id,
@@ -1188,7 +1231,8 @@ function App() {
 
   // ---- 도면 위 박스: 그리기 / 이동 / 리사이즈 ----
   function handleLayerPointerDown(event: PointerEvent<HTMLDivElement>) {
-    if (!activeImage || spaceDown) return; // 스페이스 패닝 중에는 뷰포트가 처리
+    // 손(pan) 모드이거나 스페이스 패닝 중이거나 마우스 가운데 버튼이면 뷰포트가 패닝을 처리하도록 양보한다.
+    if (!activeImage || toolRef.current === "pan" || spaceDownRef.current || event.button === 1) return;
 
     const point = getLayerPoint(event);
     if (!point) return;
@@ -1215,7 +1259,7 @@ function App() {
     } else {
       setSelectedBoxId(null);
       setInteraction({ kind: "draw", start: point });
-      setDraftBox({ id: "draft", x: point.x, y: point.y, width: 0, height: 0, title: "" });
+      setDraftBox({ id: "draft", x: point.x, y: point.y, width: 0, height: 0, title: "", description: "" });
     }
   }
 
@@ -1259,9 +1303,13 @@ function App() {
     setDraftBox(null);
   }
 
-  // ---- 뷰포트 패닝 (스페이스 + 드래그): 네이티브 스크롤 위치를 옮긴다 ----
+  // ---- 뷰포트 패닝 (스페이스+드래그 또는 마우스 가운데 버튼 드래그): 네이티브 스크롤 위치를 옮긴다 ----
   function handleViewportPointerDown(event: PointerEvent<HTMLDivElement>) {
-    if (!spaceDown || !activeImage) return;
+    // 손(pan) 모드의 좌클릭, 스페이스+드래그, 또는 마우스 가운데 버튼이면 패닝한다.
+    const wantsPan =
+      (toolRef.current === "pan" && event.button === 0) || spaceDownRef.current || event.button === 1;
+    if (!wantsPan || !activeImage) return;
+    event.preventDefault();
     const el = event.currentTarget;
     panStartRef.current = {
       clientX: event.clientX,
@@ -1316,14 +1364,61 @@ function App() {
     }));
   }
 
+  function setBBoxDescription(boxId: string, description: string) {
+    updateCurrentDraft((draft) => ({
+      ...draft,
+      bboxs: draft.bboxs.map((box) => (box.id === boxId ? { ...box, description } : box)),
+    }));
+  }
+
+  // ---- 오른쪽 패널 너비 조절: 경계 드래그로 자유롭게 넓히거나 줄인다 ----
+  // 그리드에서 가운데 도면은 1fr 이라, 이 패널이 넓어진 만큼 도면이 줄고 / 줄어든 만큼 도면이 넓어진다.
+  function clampRightWidth(value: number) {
+    // 도면이 최소한의 폭은 갖도록 상한만 두고, 하한은 작게 잡아 크게 줄일 수 있게 한다.
+    const max = Math.max(360, Math.min(960, window.innerWidth - 320));
+    return Math.round(Math.min(max, Math.max(240, value)));
+  }
+
+  function handleRightResizeDown(event: PointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    rightResizeRef.current = { startX: event.clientX, startWidth: rightWidth };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handleRightResizeMove(event: PointerEvent<HTMLDivElement>) {
+    const start = rightResizeRef.current;
+    if (!start) return;
+    // 왼쪽으로 끌면 넓어지고, 오른쪽으로 끌면 좁아진다(가운데 도면이 그만큼 반대로 늘고 줄어든다).
+    const target = start.startWidth + (start.startX - event.clientX);
+    if (target < COLLAPSE_RIGHT_THRESHOLD) {
+      // 끝까지 좁히면 패널을 접는다. 툴바 우측 토글 아이콘이 '열기'(⟨|)로 바뀌고,
+      // 그 버튼으로 다시 열면 접기 직전 너비로 복구된다.
+      setRightOpen(false);
+      setRightWidth(clampRightWidth(start.startWidth));
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      rightResizeRef.current = null;
+      return;
+    }
+    setRightWidth(clampRightWidth(target));
+  }
+
+  function handleRightResizeUp(event: PointerEvent<HTMLDivElement>) {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    rightResizeRef.current = null;
+  }
+
   function undoLastBBox() {
     updateCurrentDraft((draft) => ({ ...draft, bboxs: draft.bboxs.slice(0, -1) }));
   }
 
   const displayedBoxes = draftBox ? [...currentDraft.bboxs, draftBox] : currentDraft.bboxs;
 
-  const workspaceColumns = `${leftOpen ? "288px " : ""}minmax(0, 1fr)${rightOpen ? " 420px" : ""}`;
-  const stageStateClass = panning ? "panning" : spaceDown ? "panReady" : "";
+  const workspaceColumns = `${leftOpen ? "288px " : ""}minmax(0, 1fr)${rightOpen ? ` ${rightWidth}px` : ""}`;
+  const stageStateClass = panning ? "panning" : spaceDown || tool === "pan" ? "panReady" : "";
 
   return (
     <div className="app">
@@ -1501,12 +1596,34 @@ function App() {
                 <h2>{activeImage ? activeImage.name : "이미지 없음"}</h2>
                 <span>
                   현재 bbox {currentDraft.bboxs.length}개 · 이 이미지 묶음 {activeImageRecords.length}개
-                  {spaceDown ? " · 패닝 모드" : ""}
+                  {tool === "pan" ? " · 손(이동) 모드" : spaceDown ? " · 패닝 모드" : ""}
                 </span>
               </div>
             </div>
 
             <div className="toolButtons">
+              <div className="toolModeGroup" role="group" aria-label="도구 모드">
+                <button
+                  className={`toolModeButton draw ${tool === "draw" ? "active" : ""}`}
+                  type="button"
+                  title="그리기 모드: 드래그해서 bbox 생성"
+                  aria-pressed={tool === "draw"}
+                  onClick={() => setTool("draw")}
+                  disabled={!activeImage}
+                >
+                  <SquareDashedMousePointer size={18} aria-hidden="true" />
+                </button>
+                <button
+                  className={`toolModeButton pan ${tool === "pan" ? "active" : ""}`}
+                  type="button"
+                  title="손 모드: 드래그해서 도면 이동"
+                  aria-pressed={tool === "pan"}
+                  onClick={() => setTool("pan")}
+                  disabled={!activeImage}
+                >
+                  <Hand size={18} aria-hidden="true" />
+                </button>
+              </div>
               <div className="zoomControls">
                 <button
                   className="iconButton"
@@ -1653,6 +1770,17 @@ function App() {
 
         {rightOpen ? (
           <aside className="detailsPanel" aria-label="묶음 편집">
+            <div
+              className="rightResizer"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="묶음 편집 패널 너비 조절"
+              title="드래그해서 너비 조절"
+              onPointerDown={handleRightResizeDown}
+              onPointerMove={handleRightResizeMove}
+              onPointerUp={handleRightResizeUp}
+              onPointerCancel={handleRightResizeUp}
+            />
             <div className="panelHeader">
               <h2>묶음 편집</h2>
               <span className={isEditing ? "editPill" : canCommit ? "readyPill" : "countPill"}>
@@ -1661,10 +1789,10 @@ function App() {
             </div>
 
             <label className="field description">
-              <span>Description</span>
+              <span>공통 설명 (Description)</span>
               <textarea
                 value={currentDraft.description}
-                placeholder={activeImage ? "설명 입력" : "이미지를 먼저 선택하세요"}
+                placeholder={activeImage ? "좌표와 무관한 도면 공통 정보를 입력하세요 (선택)" : "이미지를 먼저 선택하세요"}
                 onChange={(event) =>
                   updateCurrentDraft((draft) => ({ ...draft, description: event.target.value }))
                 }
@@ -1710,8 +1838,8 @@ function App() {
                 {isEditing ? "묶음 수정" : "묶음 추가"}
               </button>
             </div>
-            {activeImage && !canCommit && (hasDescription || hasBBox) ? (
-              <small className="formHint">설명(description)과 bbox가 모두 있어야 묶음을 저장할 수 있습니다.</small>
+            {activeImage && !canCommit ? (
+              <small className="formHint">bbox를 하나 이상 그리거나 공통 설명을 입력하면 묶음을 저장할 수 있습니다.</small>
             ) : null}
 
             <div className="bboxListHeader">
@@ -1745,8 +1873,17 @@ function App() {
                           className="bboxTitleInput"
                           type="text"
                           value={box.title ?? ""}
-                          placeholder="타이틀 입력"
+                          placeholder="이름 입력 (예: 기동 조건)"
                           onChange={(event) => setBBoxTitle(box.id, event.target.value)}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => event.stopPropagation()}
+                        />
+                        <textarea
+                          className="bboxDescInput"
+                          value={box.description ?? ""}
+                          placeholder="이 좌표에 대한 설명 입력"
+                          rows={2}
+                          onChange={(event) => setBBoxDescription(box.id, event.target.value)}
                           onPointerDown={(event) => event.stopPropagation()}
                           onClick={(event) => event.stopPropagation()}
                         />

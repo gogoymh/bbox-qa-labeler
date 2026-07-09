@@ -221,10 +221,39 @@ button {
 }
 
 .detailsPanel {
+  position: relative;
   border-left: 1px solid #dfe3eb;
   padding: 16px;
   gap: 14px;
-  overflow-y: auto;
+  overflow: hidden;
+}
+
+/* 오른쪽 패널 왼쪽 경계의 드래그 리사이저 (패널 overflow:hidden 에 잘리지 않도록 안쪽에 둔다) */
+.rightResizer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 9px;
+  height: 100%;
+  z-index: 5;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.rightResizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 2px;
+  height: 100%;
+  background: transparent;
+  transition: background-color 120ms ease;
+}
+
+.rightResizer:hover::after,
+.rightResizer:active::after {
+  background: #246bfe;
 }
 
 .panelHeader,
@@ -607,8 +636,7 @@ button {
 }
 
 .field.description {
-  flex: 1;
-  min-height: 200px;
+  flex: none;
 }
 
 .field span {
@@ -633,9 +661,9 @@ button {
 }
 
 .field.description textarea {
-  flex: 1;
-  min-height: 220px;
-  resize: none;
+  min-height: 84px;
+  max-height: 30vh;
+  resize: vertical;
 }
 
 .field textarea:focus {
@@ -686,16 +714,18 @@ button {
 }
 
 .bboxList {
-  min-height: 120px;
-  max-height: 34vh;
+  flex: 1;
+  min-height: 140px;
   padding: 0;
 }
 
 .bboxRow {
+  /* flex 컬럼(.bboxList) 안에서 내용(제목+설명)만큼 높이를 유지하고 눌리지 않게 한다 */
+  flex: none;
   min-height: 54px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 36px;
-  align-items: center;
+  align-items: start;
   gap: 8px;
   padding: 8px;
   border: 1px solid #dfe3eb;
@@ -734,9 +764,26 @@ button {
   outline: none;
 }
 
-.bboxTitleInput:focus {
+.bboxTitleInput:focus,
+.bboxDescInput:focus {
   border-color: #246bfe;
   box-shadow: 0 0 0 3px rgba(36, 107, 254, 0.14);
+}
+
+.bboxDescInput {
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  resize: vertical;
+  padding: 6px 8px;
+  border: 1px solid #cfd6df;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #101828;
+  background: #ffffff;
+  outline: none;
 }
 
 .bboxRow.selected {
@@ -747,6 +794,59 @@ button {
 .mutedLine {
   padding: 14px 4px;
   font-size: 13px;
+}
+
+.toolModeGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 4px;
+  padding-right: 10px;
+  border-right: 1px solid #dfe3eb;
+}
+
+.toolModeButton {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: #344054;
+  background: #eef2f7;
+  border: 1px solid #dde3ec;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease,
+    box-shadow 120ms ease,
+    opacity 120ms ease;
+}
+
+.toolModeButton:not(:disabled):hover {
+  filter: brightness(0.98);
+}
+
+.toolModeButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+/* 그리기 모드 활성 = 초록(bbox 색) */
+.toolModeButton.draw.active {
+  color: #0f8b6f;
+  background: #e6f7f0;
+  border-color: #86e0c3;
+  box-shadow: 0 0 0 2px rgba(15, 139, 111, 0.18);
+}
+
+/* 손(이동) 모드 활성 = 파랑 */
+.toolModeButton.pan.active {
+  color: #246bfe;
+  background: #e7f0ff;
+  border-color: #a9c9ff;
+  box-shadow: 0 0 0 2px rgba(36, 107, 254, 0.18);
 }
 
 .zoomControls {
@@ -828,6 +928,20 @@ button {
   .detailsPanel {
     border: 0;
     border-bottom: 1px solid #dfe3eb;
+  }
+
+  /* 세로로 쌓이는 모바일에서는 패널 자체 높이가 콘텐츠에 맞춰지므로 내부 스크롤/리사이저를 끈다. */
+  .detailsPanel {
+    overflow: visible;
+  }
+
+  .rightResizer {
+    display: none;
+  }
+
+  .bboxList {
+    flex: none;
+    max-height: 60vh;
   }
 
   .imageList {
